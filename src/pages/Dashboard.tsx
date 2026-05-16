@@ -4,6 +4,7 @@ import LiveClock from '../components/LiveClock'
 import OverlapBanner from '../components/OverlapBanner'
 import SessionTimeline from '../components/SessionTimeline'
 import StatsRow from '../components/StatsRow'
+import CryptoChart from '../components/CryptoChart'
 
 export default function Dashboard() {
   const data = useForexSessions()
@@ -13,27 +14,22 @@ export default function Dashboard() {
       className="min-h-screen p-5"
       style={{ background: '#0d1117', color: '#e6edf3' }}
     >
-      {/* ── Header: live clock + brand ── */}
       <LiveClock
         clockTime={data.clockTime}
         clockDate={data.clockDate}
         utcTime={data.utcTime}
       />
 
-      {/* ── Overlap warning banner ── */}
       <OverlapBanner isVisible={data.overlapActive} />
 
-      {/* ── Session cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {data.sessions.map((session) => (
           <SessionCard key={session.id} session={session} />
         ))}
       </div>
 
-      {/* ── 24hr visual timeline ── */}
       <SessionTimeline dayFraction={data.dayFraction} />
 
-      {/* ── Stats summary row ── */}
       <StatsRow
         activeCount={data.activeCount}
         activeNames={data.activeNames}
@@ -44,7 +40,9 @@ export default function Dashboard() {
         nextEventCountdown={data.nextEvent.countdown}
       />
 
-      {/* ── Footer ── */}
+      {/* Live ETH/USDT chart */}
+      <CryptoChart />
+
       <p
         className="text-center mt-4 text-xs tracking-wide"
         style={{ color: '#7d8590', opacity: 0.6 }}
