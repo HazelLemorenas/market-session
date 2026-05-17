@@ -28,7 +28,7 @@ interface UseBinanceChartReturn {
 // ─────────────────────────────────────────────
 
 const SYMBOL = 'ethusdt'
-const HISTORY_LIMIT = 100  // candles to load on startup
+const HISTORY_LIMIT = 1000  // candles to load on startup
 
 function getRestUrl(tf: Timeframe) {
   return `https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=${tf}&limit=${HISTORY_LIMIT}`

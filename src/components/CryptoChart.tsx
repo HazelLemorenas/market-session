@@ -3,15 +3,16 @@ import {
   createChart,
   CandlestickSeries,
   ColorType,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
 } from 'lightweight-charts'
 import { useBinanceChart, type Timeframe } from '../hooks/useBinanceChart'
 
 // ─────────────────────────────────────────────
-// SESSION BOUNDARIES (UTC hours)
+// SESSION BOUNDARY DEFINITIONS
 // ─────────────────────────────────────────────
-
+const CHART_HEIGHT = 500
 const BOUNDARIES = [
   { hour: 0,  color: '#3b82f6', label: 'A' },
   { hour: 9,  color: '#3b82f6', label: 'A' },
@@ -37,12 +38,43 @@ function getSessionTimestamps(fromSec: number, toSec: number) {
 }
 
 // ─────────────────────────────────────────────
+// SESSION COLOR DETECTION
+// Given a UTC timestamp, returns the color of
+// whichever session is active at that moment.
+// Priority: NY > London > Asian > gray
+// ─────────────────────────────────────────────
+
+function getSessionColor(utcTimestampSecs: number): string {
+  const date    = new Date(utcTimestampSecs * 1000)
+  const utcHour = date.getUTCHours() + date.getUTCMinutes() / 60
+
+  const inAsian  = utcHour >= 0  && utcHour < 9
+  const inLondon = utcHour >= 7  && utcHour < 16
+  const inNY     = utcHour >= 12 && utcHour < 21
+
+  if (inNY)     return '#34d399' // green
+  if (inLondon) return '#a78bfa' // purple
+  if (inAsian)  return '#3b82f6' // blue
+  return '#7d8590'               // gray — no active session
+}
+
+function getSessionName(utcTimestampSecs: number): string {
+  const date    = new Date(utcTimestampSecs * 1000)
+  const utcHour = date.getUTCHours() + date.getUTCMinutes() / 60
+
+  if (utcHour >= 12 && utcHour < 21) return 'NY'
+  if (utcHour >= 7  && utcHour < 16) return 'London'
+  if (utcHour >= 0  && utcHour < 9)  return 'Asian'
+  return 'Off-session'
+}
+
+// ─────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────
 
 interface LinePos {
-  id: string
-  x: number
+  id:    string
+  x:     number
   color: string
   label: string
 }
@@ -61,11 +93,20 @@ export default function CryptoChart() {
     setTimeframe,
   } = useBinanceChart()
 
-  const containerRef  = useRef<HTMLDivElement>(null)
-  const chartRef      = useRef<IChartApi | null>(null)
-  const seriesRef     = useRef<ISeriesApi<'Candlestick', any> | null>(null)
-  const [lines, setLines]         = useState<LinePos[]>([])
-  const [chartHeight, setChartHeight] = useState(400)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef     = useRef<IChartApi | null>(null)
+  const seriesRef    = useRef<ISeriesApi<'Candlestick', any> | null>(null)
+  
+
+  // Session vertical lines
+  const [lines, setLines]           = useState<LinePos[]>([])
+  const [chartHeight, setChartHeight] = useState(CHART_HEIGHT)
+
+  // Drawing tool state
+  const [drawingMode, setDrawingMode] = useState(false)
+  const [lastDrawnSession, setLastDrawnSession] = useState<string | null>(null)
+  const drawnLinesRef = useRef<any[]>([]) // stores IPriceLine objects for undo/clear
+  const prevCandlesLengthRef = useRef(0)
 
   // ── Initialize chart ────────────────────────
   useEffect(() => {
@@ -92,12 +133,12 @@ export default function CryptoChart() {
       },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.07)' },
       timeScale: {
-        borderColor: 'rgba(255,255,255,0.07)',
-        timeVisible: true,
+        borderColor:    'rgba(255,255,255,0.07)',
+        timeVisible:    true,
         secondsVisible: false,
       },
-      width: containerRef.current.clientWidth,
-      height: 400,
+      width:  containerRef.current.clientWidth,
+      height: CHART_HEIGHT,
     })
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -130,6 +171,7 @@ export default function CryptoChart() {
   // ── Feed candle data ────────────────────────
   useEffect(() => {
     if (!seriesRef.current || candles.length === 0) return
+
     seriesRef.current.setData(
       candles.map((c) => ({
         time:  c.time as any,
@@ -139,10 +181,18 @@ export default function CryptoChart() {
         close: c.close,
       }))
     )
-    chartRef.current?.timeScale().scrollToRealTime()
-  }, [candles])
 
-  // ── Compute session line positions ──────────
+  // Only scroll to real-time when candles first load
+  // or when reloading after a timeframe switch (length resets to 0 then back up)
+  // Never scroll again after that — user is free to pan
+  if (prevCandlesLengthRef.current === 0 && candles.length > 0) {
+    chartRef.current?.timeScale().scrollToRealTime()
+  }
+
+  prevCandlesLengthRef.current = candles.length
+}, [candles])
+
+  // ── Session vertical lines ──────────────────
   useEffect(() => {
     if (!chartRef.current || candles.length === 0) return
 
@@ -161,16 +211,10 @@ export default function CryptoChart() {
       )
 
       const computed: LinePos[] = []
-
       timestamps.forEach(({ ts, color, label }) => {
         const x = timeScale.timeToCoordinate(ts as any)
         if (x !== null) {
-          computed.push({
-            id:    `${ts}-${color}`,
-            x:     Math.round(x),
-            color,
-            label,
-          })
+          computed.push({ id: `${ts}-${color}`, x: Math.round(x), color, label })
         }
       })
 
@@ -178,11 +222,7 @@ export default function CryptoChart() {
       setChartHeight(containerRef.current?.clientHeight ?? 400)
     }
 
-    // Use requestAnimationFrame to wait for chart paint
-    let rafId = requestAnimationFrame(() => {
-      setTimeout(computeLines, 50)
-    })
-
+    const rafId = requestAnimationFrame(() => setTimeout(computeLines, 50))
     chart.timeScale().subscribeVisibleTimeRangeChange(computeLines)
     chart.timeScale().subscribeVisibleLogicalRangeChange(computeLines)
 
@@ -192,6 +232,66 @@ export default function CryptoChart() {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(computeLines)
     }
   }, [candles.length])
+
+  // ── Drawing tool click handler ───────────────
+  useEffect(() => {
+    if (!drawingMode) return
+    if (!containerRef.current || !chartRef.current || !seriesRef.current) return
+
+    const container = containerRef.current
+    const chart     = chartRef.current
+    const series    = seriesRef.current
+
+    function handleClick(e: MouseEvent) {
+      const rect = container.getBoundingClientRect()
+      const x    = e.clientX - rect.left
+      const y    = e.clientY - rect.top
+
+      // Convert pixel coords to price and time
+      const price = series.coordinateToPrice(y)
+      const time  = chart.timeScale().coordinateToTime(x)
+
+      if (price === null || time === null) return
+
+      const utcSecs    = time as number
+      const color      = getSessionColor(utcSecs)
+      const sessionName = getSessionName(utcSecs)
+
+      // Draw the horizontal ray as a price line
+      const priceLine = series.createPriceLine({
+        price,
+        color,
+        lineWidth:        1,
+        lineStyle:        LineStyle.Solid,
+        axisLabelVisible: true,
+        title:            sessionName,
+      })
+
+      drawnLinesRef.current.push(priceLine)
+      setLastDrawnSession(sessionName)
+    }
+
+    container.addEventListener('click', handleClick)
+    return () => container.removeEventListener('click', handleClick)
+  }, [drawingMode, candles.length])
+
+  // ── Drawing tool actions ────────────────────
+
+  function handleUndo() {
+    if (!seriesRef.current || drawnLinesRef.current.length === 0) return
+    const last = drawnLinesRef.current.pop()
+    seriesRef.current.removePriceLine(last)
+    setLastDrawnSession(null)
+  }
+
+  function handleClearAll() {
+    if (!seriesRef.current) return
+    drawnLinesRef.current.forEach((line) => {
+      seriesRef.current!.removePriceLine(line)
+    })
+    drawnLinesRef.current = []
+    setLastDrawnSession(null)
+  }
 
   // ─────────────────────────────────────────────
   // RENDER
@@ -212,7 +312,7 @@ export default function CryptoChart() {
         border: '1px solid rgba(255,255,255,0.07)',
       }}
     >
-      {/* ── Header ── */}
+      {/* ── Header: pair + price ── */}
       <div className="flex items-center justify-between px-4 py-3 flex-wrap gap-3">
         <div>
           <p
@@ -244,7 +344,10 @@ export default function CryptoChart() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Right controls */}
+        <div className="flex items-center gap-3 flex-wrap">
+
+          {/* Live indicator */}
           <div className="flex items-center gap-1.5">
             <div
               className="w-1.5 h-1.5 rounded-full"
@@ -255,6 +358,7 @@ export default function CryptoChart() {
             </span>
           </div>
 
+          {/* Timeframe toggle */}
           <div
             className="flex rounded-lg overflow-hidden"
             style={{ border: '1px solid rgba(255,255,255,0.07)' }}
@@ -280,16 +384,86 @@ export default function CryptoChart() {
         </div>
       </div>
 
+      {/* ── Drawing toolbar ── */}
+      <div
+        className="flex items-center gap-2 px-4 py-2 flex-wrap"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+      >
+        {/* Draw Ray toggle */}
+        <button
+          onClick={() => setDrawingMode((prev) => !prev)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+          style={{
+            background: drawingMode
+              ? 'rgba(167,139,250,0.2)'
+              : 'rgba(255,255,255,0.05)',
+            color:  drawingMode ? '#a78bfa' : '#7d8590',
+            border: drawingMode
+              ? '1px solid rgba(167,139,250,0.4)'
+              : '1px solid rgba(255,255,255,0.07)',
+            cursor: 'pointer',
+          }}
+        >
+          {/* Horizontal ray icon */}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <line x1="0" y1="7" x2="10" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <path d="M10 4L14 7L10 10" fill="currentColor"/>
+          </svg>
+          {drawingMode ? 'Drawing...' : 'Draw Ray'}
+        </button>
+
+        {/* Undo */}
+        <button
+          onClick={handleUndo}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+          style={{
+            background: 'rgba(255,255,255,0.05)',
+            color:      '#7d8590',
+            border:     '1px solid rgba(255,255,255,0.07)',
+            cursor:     'pointer',
+          }}
+        >
+          Undo
+        </button>
+
+        {/* Clear All */}
+        <button
+          onClick={handleClearAll}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+          style={{
+            background: 'rgba(248,113,113,0.08)',
+            color:      '#f87171',
+            border:     '1px solid rgba(248,113,113,0.2)',
+            cursor:     'pointer',
+          }}
+        >
+          Clear All
+        </button>
+
+        {/* Session hint — shows which session your last line landed in */}
+        {drawingMode && (
+          <span className="text-xs" style={{ color: '#7d8590' }}>
+            {lastDrawnSession
+              ? `Last ray → ${lastDrawnSession} session`
+              : 'Click anywhere on the chart to place a ray'}
+          </span>
+        )}
+      </div>
+
       {/* ── Chart + session line overlay ── */}
       <div style={{ position: 'relative', height: chartHeight }}>
 
-        {/* Lightweight Charts canvas */}
+        {/* Chart canvas */}
         <div
           ref={containerRef}
-          style={{ position: 'absolute', inset: 0 }}
+          style={{
+            position: 'absolute',
+            inset:    0,
+            cursor:   drawingMode ? 'crosshair' : 'default',
+          }}
         />
 
-        {/* Session boundary lines rendered as React elements */}
+        {/* Session vertical lines */}
         {lines.map(({ id, x, color, label }) => (
           <div
             key={id}
