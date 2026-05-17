@@ -22,19 +22,19 @@ const BOUNDARIES = [
   { hour: 21, color: '#34d399', label: 'N' },
 ]
 
-function getSessionTimestamps(fromSec: number, toSec: number) {
-  const results: { ts: number; color: string; label: string }[] = []
-  const startDay = new Date((fromSec - 86400) * 1000)
-  startDay.setUTCHours(0, 0, 0, 0)
-  const endSec = toSec + 86400
-  let current = startDay.getTime() / 1000
-  while (current <= endSec) {
-    BOUNDARIES.forEach(({ hour, color, label }) => {
-      results.push({ ts: current + hour * 3600, color, label })
-    })
-    current += 86400
-  }
-  return results
+function getTodayBoundaries() {
+  // Find today's 00:00 UTC (Asian open = start of daily cycle)
+  const now = new Date()
+  const todayMidnight = new Date(now)
+  todayMidnight.setUTCHours(0, 0, 0, 0)
+  const dayStart = todayMidnight.getTime() / 1000
+
+  // Return only today's 6 boundaries
+  return BOUNDARIES.map(({ hour, color, label }) => ({
+    ts:    dayStart + hour * 3600,
+    color,
+    label,
+  }))
 }
 
 // ─────────────────────────────────────────────
@@ -117,6 +117,16 @@ export default function CryptoChart() {
         background: { type: ColorType.Solid, color: '#161b22' },
         textColor: '#7d8590',
       },
+      localization: {
+        timeFormatter: (timestamp: number) => {
+          const pht  = new Date((timestamp + 8 * 3600) * 1000)
+          const h    = pht.getUTCHours()
+          const m    = pht.getUTCMinutes()
+          const ampm = h >= 12 ? 'PM' : 'AM'
+          const h12  = h % 12 || 12
+          return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`
+        },
+      },
       grid: {
         vertLines: { color: 'rgba(255,255,255,0.04)' },
         horzLines: { color: 'rgba(255,255,255,0.04)' },
@@ -136,6 +146,14 @@ export default function CryptoChart() {
         borderColor:    'rgba(255,255,255,0.07)',
         timeVisible:    true,
         secondsVisible: false,
+        tickMarkFormatter: (time: any) => {
+          const pht  = new Date((time + 8 * 3600) * 1000)
+          const h    = pht.getUTCHours()
+          const m    = pht.getUTCMinutes()
+          const ampm = h >= 12 ? 'PM' : 'AM'
+          const h12  = h % 12 || 12
+          return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`
+        },
       },
       width:  containerRef.current.clientWidth,
       height: CHART_HEIGHT,
@@ -205,10 +223,7 @@ export default function CryptoChart() {
       const visibleRange = timeScale.getVisibleRange()
       if (!visibleRange) return
 
-      const timestamps = getSessionTimestamps(
-        visibleRange.from as number,
-        visibleRange.to   as number
-      )
+      const timestamps = getTodayBoundaries()
 
       const computed: LinePos[] = []
       timestamps.forEach(({ ts, color, label }) => {
@@ -226,8 +241,12 @@ export default function CryptoChart() {
     chart.timeScale().subscribeVisibleTimeRangeChange(computeLines)
     chart.timeScale().subscribeVisibleLogicalRangeChange(computeLines)
 
+    // Refresh every 60 seconds so lines reset automatically at UTC midnight
+    const intervalId = setInterval(computeLines, 60000)
+
     return () => {
       cancelAnimationFrame(rafId)
+      clearInterval(intervalId)
       chart.timeScale().unsubscribeVisibleTimeRangeChange(computeLines)
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(computeLines)
     }
