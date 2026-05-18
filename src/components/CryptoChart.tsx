@@ -8,33 +8,58 @@ import {
   type ISeriesApi,
 } from 'lightweight-charts'
 import { useBinanceChart, type Timeframe } from '../hooks/useBinanceChart'
+import { isUSDST, isUKDST } from '../utils/sessionUtils'
 
 // ─────────────────────────────────────────────
 // SESSION BOUNDARY DEFINITIONS
 // ─────────────────────────────────────────────
 const CHART_HEIGHT = 500
-const BOUNDARIES = [
-  { hour: 0,  color: '#3b82f6', label: 'A' },
-  { hour: 9,  color: '#3b82f6', label: 'A' },
-  { hour: 7,  color: '#a78bfa', label: 'L' },
-  { hour: 16, color: '#a78bfa', label: 'L' },
-  { hour: 12, color: '#34d399', label: 'N' },
-  { hour: 21, color: '#34d399', label: 'N' },
-]
+function getBoundaries() {
+  const londonOffset = isUKDST() ? -1 : 0
+  const nyOffset     = isUSDST() ? -1 : 0
+  return [
+    { hour: 0,                  color: '#3b82f6', label: 'A' },
+    { hour: 9,                  color: '#3b82f6', label: 'A' },
+    { hour: 7  + londonOffset,  color: '#a78bfa', label: 'L' },
+    { hour: 16 + londonOffset,  color: '#a78bfa', label: 'L' },
+    { hour: 12 + nyOffset,      color: '#34d399', label: 'N' },
+    { hour: 21 + nyOffset,      color: '#34d399', label: 'N' },
+  ]
+}
 
-function getTodayBoundaries() {
-  // Find today's 00:00 UTC (Asian open = start of daily cycle)
-  const now = new Date()
+function getMostRecentBoundaries() {
+  const now        = new Date()
+  const nowUTCSecs = now.getTime() / 1000
+
   const todayMidnight = new Date(now)
   todayMidnight.setUTCHours(0, 0, 0, 0)
-  const dayStart = todayMidnight.getTime() / 1000
+  const todayStart     = todayMidnight.getTime() / 1000
+  const yesterdayStart = todayStart - 86400
 
-  // Return only today's 6 boundaries
-  return BOUNDARIES.map(({ hour, color, label }) => ({
-    ts:    dayStart + hour * 3600,
-    color,
-    label,
-  }))
+  return getBoundaries().map(({ hour, color, label }) => {  // ← updated
+    const todayOccurrence     = todayStart     + hour * 3600
+    const yesterdayOccurrence = yesterdayStart + hour * 3600
+    const ts = todayOccurrence <= nowUTCSecs
+      ? todayOccurrence
+      : yesterdayOccurrence
+    return { ts, color, label }
+  })
+}
+
+/**
+ * Returns the start timestamp (seconds) of each UTC day
+ * within the visible range, with a 1-day buffer on each side
+ */
+function getDayStarts(fromSec: number, toSec: number): number[] {
+  const starts: number[] = []
+  const startDay = new Date((fromSec - 86400) * 1000)
+  startDay.setUTCHours(0, 0, 0, 0)
+  let current = startDay.getTime() / 1000
+  while (current <= toSec + 86400) {
+    starts.push(current)
+    current += 86400
+  }
+  return starts
 }
 
 // ─────────────────────────────────────────────
@@ -45,26 +70,30 @@ function getTodayBoundaries() {
 // ─────────────────────────────────────────────
 
 function getSessionColor(utcTimestampSecs: number): string {
-  const date    = new Date(utcTimestampSecs * 1000)
-  const utcHour = date.getUTCHours() + date.getUTCMinutes() / 60
+  const date         = new Date(utcTimestampSecs * 1000)
+  const utcHour      = date.getUTCHours() + date.getUTCMinutes() / 60
+  const londonOffset = isUKDST(date) ? -1 : 0
+  const nyOffset     = isUSDST(date) ? -1 : 0
 
-  const inAsian  = utcHour >= 0  && utcHour < 9
-  const inLondon = utcHour >= 7  && utcHour < 16
-  const inNY     = utcHour >= 12 && utcHour < 21
+  const inAsian  = utcHour >= 0                   && utcHour < 9
+  const inLondon = utcHour >= (7  + londonOffset) && utcHour < (16 + londonOffset)
+  const inNY     = utcHour >= (12 + nyOffset)     && utcHour < (21 + nyOffset)
 
-  if (inNY)     return '#34d399' // green
-  if (inLondon) return '#a78bfa' // purple
-  if (inAsian)  return '#3b82f6' // blue
-  return '#7d8590'               // gray — no active session
+  if (inNY)     return '#34d399'
+  if (inLondon) return '#a78bfa'
+  if (inAsian)  return '#3b82f6'
+  return '#7d8590'
 }
 
 function getSessionName(utcTimestampSecs: number): string {
-  const date    = new Date(utcTimestampSecs * 1000)
-  const utcHour = date.getUTCHours() + date.getUTCMinutes() / 60
+  const date         = new Date(utcTimestampSecs * 1000)
+  const utcHour      = date.getUTCHours() + date.getUTCMinutes() / 60
+  const londonOffset = isUKDST(date) ? -1 : 0
+  const nyOffset     = isUSDST(date) ? -1 : 0
 
-  if (utcHour >= 12 && utcHour < 21) return 'NY'
-  if (utcHour >= 7  && utcHour < 16) return 'London'
-  if (utcHour >= 0  && utcHour < 9)  return 'Asian'
+  if (utcHour >= (12 + nyOffset)     && utcHour < (21 + nyOffset))     return 'NY'
+  if (utcHour >= (7  + londonOffset) && utcHour < (16 + londonOffset)) return 'London'
+  if (utcHour >= 0                   && utcHour < 9)                   return 'Asian'
   return 'Off-session'
 }
 
@@ -75,6 +104,14 @@ function getSessionName(utcTimestampSecs: number): string {
 interface LinePos {
   id:    string
   x:     number
+  color: string
+  label: string
+}
+
+interface ZonePos {
+  id:    string
+  x1:    number
+  x2:    number
   color: string
   label: string
 }
@@ -100,6 +137,7 @@ export default function CryptoChart() {
 
   // Session vertical lines
   const [lines, setLines]           = useState<LinePos[]>([])
+  const [zones, setZones]   = useState<ZonePos[]>([])
   const [chartHeight, setChartHeight] = useState(CHART_HEIGHT)
 
   // Drawing tool state
@@ -216,26 +254,78 @@ export default function CryptoChart() {
 
     const chart = chartRef.current
 
-    function computeLines() {
-      if (!chartRef.current || !containerRef.current) return
+function computeLines() {
+  if (!chartRef.current || !containerRef.current) return
 
-      const timeScale    = chartRef.current.timeScale()
-      const visibleRange = timeScale.getVisibleRange()
-      if (!visibleRange) return
+  const timeScale    = chartRef.current.timeScale()
+  const visibleRange = timeScale.getVisibleRange()
+  if (!visibleRange) return
 
-      const timestamps = getTodayBoundaries()
-
-      const computed: LinePos[] = []
-      timestamps.forEach(({ ts, color, label }) => {
-        const x = timeScale.timeToCoordinate(ts as any)
-        if (x !== null) {
-          computed.push({ id: `${ts}-${color}`, x: Math.round(x), color, label })
-        }
-      })
-
-      setLines(computed)
-      setChartHeight(containerRef.current?.clientHeight ?? 400)
+  // ── Existing line computation ──
+  const timestamps = getMostRecentBoundaries()
+  const computed: LinePos[] = []
+  timestamps.forEach(({ ts, color, label }) => {
+    const x = timeScale.timeToCoordinate(ts as any)
+    if (x !== null) {
+      computed.push({ id: `${ts}-${color}`, x: Math.round(x), color, label })
     }
+  })
+  setLines(computed)
+  setChartHeight(containerRef.current?.clientHeight ?? CHART_HEIGHT)
+
+  // ── NEW: Overlap zone computation ──
+  const londonOffset = isUKDST() ? -1 : 0
+  const nyOffset     = isUSDST() ? -1 : 0
+
+  const londonOpen  = 7  + londonOffset
+  const londonClose = 16 + londonOffset
+  const asianClose  = 9
+  const nyOpen      = 12 + nyOffset
+
+  const dayStarts = getDayStarts(
+    visibleRange.from as number,
+    visibleRange.to   as number
+  )
+
+  const computedZones: ZonePos[] = []
+
+  dayStarts.forEach((dayStart) => {
+    // Asian–London overlap: London opens while Asian still active
+    const alStart = dayStart + londonOpen  * 3600
+    const alEnd   = dayStart + asianClose  * 3600
+
+    // London–NY overlap: NY opens while London still active
+    const lnStart = dayStart + nyOpen      * 3600
+    const lnEnd   = dayStart + londonClose * 3600
+
+    const x1AL = timeScale.timeToCoordinate(alStart as any)
+    const x2AL = timeScale.timeToCoordinate(alEnd   as any)
+    const x1LN = timeScale.timeToCoordinate(lnStart as any)
+    const x2LN = timeScale.timeToCoordinate(lnEnd   as any)
+
+    if (x1AL !== null && x2AL !== null && x2AL > x1AL) {
+      computedZones.push({
+        id:    `al-${dayStart}`,
+        x1:    Math.round(x1AL),
+        x2:    Math.round(x2AL),
+        color: 'rgba(139,92,246,0.07)',  // indigo — Asian+London
+        label: 'A+L',
+      })
+    }
+
+    if (x1LN !== null && x2LN !== null && x2LN > x1LN) {
+      computedZones.push({
+        id:    `ln-${dayStart}`,
+        x1:    Math.round(x1LN),
+        x2:    Math.round(x2LN),
+        color: 'rgba(245,158,11,0.09)',  // amber — London+NY
+        label: 'L+N',
+      })
+    }
+  })
+
+  setZones(computedZones)
+}
 
     const rafId = requestAnimationFrame(() => setTimeout(computeLines, 50))
     chart.timeScale().subscribeVisibleTimeRangeChange(computeLines)
@@ -469,52 +559,86 @@ export default function CryptoChart() {
         )}
       </div>
 
-      {/* ── Chart + session line overlay ── */}
-      <div style={{ position: 'relative', height: chartHeight }}>
+{/* ── Chart canvas + session line overlay ── */}
+<div style={{ position: 'relative', height: chartHeight }}>
 
-        {/* Chart canvas */}
-        <div
-          ref={containerRef}
-          style={{
-            position: 'absolute',
-            inset:    0,
-            cursor:   drawingMode ? 'crosshair' : 'default',
-          }}
-        />
+  {/* Chart canvas */}
+  <div
+    ref={containerRef}
+    style={{
+      position: 'absolute',
+      inset: 0,
+      cursor: drawingMode ? 'crosshair' : 'default',
+    }}
+  />
 
-        {/* Session vertical lines */}
-        {lines.map(({ id, x, color, label }) => (
-          <div
-            key={id}
-            style={{
-              position:      'absolute',
-              top:           0,
-              left:          x,
-              height:        '100%',
-              width:         0,
-              borderLeft:    `1.5px dashed ${color}`,
-              opacity:       0.6,
-              pointerEvents: 'none',
-              zIndex:        10,
-            }}
-          >
-            <span
-              style={{
-                position:   'absolute',
-                top:        8,
-                left:       4,
-                fontSize:   9,
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                color,
-                opacity:    0.9,
-              }}
-            >
-              {label}
-            </span>
-          </div>
-        ))}
-      </div>
+  {/* Overlap zone shading — rendered BEHIND session lines */}
+  {zones.map(({ id, x1, x2, color, label }) => (
+    <div
+      key={id}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: x1,
+        width: Math.max(0, x2 - x1),
+        height: '100%',
+        background: color,
+        pointerEvents: 'none',
+        zIndex: 5,
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 10,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontSize: 8,
+          fontFamily: 'monospace',
+          fontWeight: 700,
+          color: label === 'L+N' ? '#f59e0b' : '#8b5cf6',
+          opacity: 0.7,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  ))}
+
+  {/* Session vertical lines — rendered ON TOP of zones */}
+  {lines.map(({ id, x, color, label }) => (
+    <div
+      key={id}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: x,
+        height: '100%',
+        width: 0,
+        borderLeft: `1.5px dashed ${color}`,
+        opacity: 0.6,
+        pointerEvents: 'none',
+        zIndex: 10,
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 8,
+          left: 4,
+          fontSize: 9,
+          fontFamily: 'monospace',
+          fontWeight: 700,
+          color,
+          opacity: 0.9,
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  ))}
+</div>
 
       {/* ── Legend ── */}
       <div

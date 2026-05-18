@@ -1,4 +1,43 @@
 // ─────────────────────────────────────────────
+// DST DETECTION
+// ─────────────────────────────────────────────
+
+/** Returns the nth Sunday of a month/year in UTC */
+function getNthSunday(year: number, month: number, n: number): Date {
+  const firstOfMonth   = new Date(Date.UTC(year, month, 1))
+  const daysUntilSunday = (7 - firstOfMonth.getUTCDay()) % 7
+  return new Date(Date.UTC(year, month, 1 + daysUntilSunday + (n - 1) * 7))
+}
+
+/** Returns the last Sunday of a month/year in UTC */
+function getLastSunday(year: number, month: number): Date {
+  const lastOfMonth = new Date(Date.UTC(year, month + 1, 0))
+  return new Date(Date.UTC(year, month, lastOfMonth.getUTCDate() - lastOfMonth.getUTCDay()))
+}
+
+/**
+ * US DST: Second Sunday of March → First Sunday of November
+ * When active, NY session shifts 1 hour earlier in UTC (12→11, 21→20)
+ */
+export function isUSDST(date: Date = new Date()): boolean {
+  const year  = date.getUTCFullYear()
+  const start = getNthSunday(year, 2, 2)   // 2nd Sunday of March
+  const end   = getNthSunday(year, 10, 1)  // 1st Sunday of November
+  return date >= start && date < end
+}
+
+/**
+ * UK/EU BST: Last Sunday of March → Last Sunday of October
+ * When active, London session shifts 1 hour earlier in UTC (7→6, 16→15)
+ */
+export function isUKDST(date: Date = new Date()): boolean {
+  const year  = date.getUTCFullYear()
+  const start = getLastSunday(year, 2)  // Last Sunday of March
+  const end   = getLastSunday(year, 9)  // Last Sunday of October
+  return date >= start && date < end
+}
+
+// ─────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────
 
@@ -31,44 +70,53 @@ export interface SessionState extends Session {
 // Overlap: 12:00–16:00 UTC  →  20:00–00:00 PHT
 // ─────────────────────────────────────────────
 
-export const SESSIONS: Session[] = [
-  {
-    id: 'asian',
-    name: 'Asian',
-    cities: 'Tokyo · Singapore',
-    flags: '🇯🇵🇸🇬',
-    regions: ['JP', 'SG'],
-    startUTC: 0,
-    endUTC: 9,
-    color: '#3b82f6',
-  },
-  {
-    id: 'london',
-    name: 'London',
-    cities: 'London · Frankfurt',
-    flags: '🇬🇧🇪🇺',
-    regions: ['GB', 'EU'],
-    startUTC: 7,
-    endUTC: 16,
-    color: '#a78bfa',
-  },
-  {
-    id: 'ny',
-    name: 'New York',
-    cities: 'New York',
-    flags: '🇺🇸',
-    regions: ['US'],
-    startUTC: 12,
-    endUTC: 21,
-    color: '#34d399',
-  },
-]
+export function getSessions(): Session[] {
+  const londonOffset = isUKDST() ? -1 : 0
+  const nyOffset     = isUSDST() ? -1 : 0
 
-export const OVERLAP = {
-  londonStart: 7,
-  londonEnd: 16,
-  nyStart: 12,
-  nyEnd: 21,
+  return [
+    {
+      id:       'asian',
+      name:     'Asian',
+      cities:   'Tokyo · Singapore',
+      flags:    '🇯🇵🇸🇬',
+      regions:  ['JP', 'SG'],
+      startUTC: 0,
+      endUTC:   9,
+      color:    '#3b82f6',
+    },
+    {
+      id:       'london',
+      name:     'London',
+      cities:   'London · Frankfurt',
+      flags:    '🇬🇧🇪🇺',
+      regions:  ['GB', 'EU'],
+      startUTC: 7  + londonOffset,
+      endUTC:   16 + londonOffset,
+      color:    '#a78bfa',
+    },
+    {
+      id:       'ny',
+      name:     'New York',
+      cities:   'New York',
+      flags:    '🇺🇸',
+      regions:  ['US'],
+      startUTC: 12 + nyOffset,
+      endUTC:   21 + nyOffset,
+      color:    '#34d399',
+    },
+  ]
+}
+
+export function getOverlap() {
+  const londonOffset = isUKDST() ? -1 : 0
+  const nyOffset     = isUSDST() ? -1 : 0
+  return {
+    londonStart: 7  + londonOffset,
+    londonEnd:   16 + londonOffset,
+    nyStart:     12 + nyOffset,
+    nyEnd:       21 + nyOffset,
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -136,9 +184,10 @@ export function getSecsUntilEnd(endUTC: number): number {
  * simultaneously — the highest-liquidity overlap window.
  */
 export function isOverlapActive(): boolean {
+  const overlap = getOverlap()
   return (
-    isSessionActive(OVERLAP.londonStart, OVERLAP.londonEnd) &&
-    isSessionActive(OVERLAP.nyStart, OVERLAP.nyEnd)
+    isSessionActive(overlap.londonStart, overlap.londonEnd) &&
+    isSessionActive(overlap.nyStart,     overlap.nyEnd)
   )
 }
 

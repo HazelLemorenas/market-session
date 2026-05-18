@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  SESSIONS,
+  getSessions,
   buildSessionState,
   isOverlapActive,
   formatPHT,
@@ -60,7 +60,7 @@ export function useForexSessions(): ForexSessionsData {
   }, [])
 
   // ── Session states ──────────────────────────
-  const sessions = SESSIONS.map(buildSessionState)
+  const sessions = getSessions().map(buildSessionState)
   const activeSessions = sessions.filter((s) => s.isActive)
   const overlapActive = isOverlapActive()
 

@@ -13,25 +13,16 @@ interface SessionCardProps {
 // Times shown in PHT (UTC+8), 12-hour format
 // ─────────────────────────────────────────────
 
-const SESSION_DISPLAY: Record <
-  string,
-  { openPHT: string; closePHT: string; utcRange: string }
-> = {
-  asian: {
-    openPHT: '8:00 AM',
-    closePHT: '5:00 PM',
-    utcRange: '00:00 – 09:00',
-  },
-  london: {
-    openPHT: '3:00 PM',
-    closePHT: '12:00 AM',
-    utcRange: '07:00 – 16:00',
-  },
-  ny: {
-    openPHT: '8:00 PM',
-    closePHT: '5:00 AM',
-    utcRange: '12:00 – 21:00',
-  },
+function utcHourToPHT(utcHour: number): string {
+  const pht  = (utcHour + 8) % 24
+  const ampm = pht >= 12 ? 'PM' : 'AM'
+  const h12  = pht % 12 || 12
+  return `${h12}:00 ${ampm}`
+}
+
+function utcRangeString(startUTC: number, endUTC: number): string {
+  const pad = (h: number) => `${String(h).padStart(2, '0')}:00`
+  return `${pad(startUTC)} – ${pad(endUTC)}`
 }
 
 // ─────────────────────────────────────────────
@@ -39,7 +30,6 @@ const SESSION_DISPLAY: Record <
 // ─────────────────────────────────────────────
 
 export default function SessionCard({ session }: SessionCardProps) {
-  const display = SESSION_DISPLAY[session.id]
   const { isActive, color } = session
 
   return (
@@ -111,11 +101,11 @@ export default function SessionCard({ session }: SessionCardProps) {
   {session.cities}
 </div>
 
-      {/* ── Session times ── */}
+      {/* ── Session times — computed dynamically from UTC hours ── */}
       <div className="flex flex-col gap-1 mb-3">
-        <TimeRow label="Opens" value={display.openPHT} />
-        <TimeRow label="Closes" value={display.closePHT} />
-        <TimeRow label="UTC" value={display.utcRange} />
+        <TimeRow label="Opens" value={utcHourToPHT(session.startUTC)} />
+        <TimeRow label="Closes" value={utcHourToPHT(session.endUTC)} />
+        <TimeRow label="UTC" value={utcRangeString(session.startUTC, session.endUTC)} />
       </div>
 
       {/* ── Countdown ── */}
