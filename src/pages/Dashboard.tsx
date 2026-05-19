@@ -12,7 +12,7 @@ import { useSessionStats } from '../hooks/useSessionStats'
 
 export default function Dashboard() {
   const data = useForexSessions()
-  const { stats, loading } = useSessionStats()
+  const { stats } = useSessionStats()
   const { sweeps, recentSweep, isConnected: sweepConnected } = useSweepDetection(stats)
 
   return (
