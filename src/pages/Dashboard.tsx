@@ -52,5 +52,7 @@ export default function Dashboard() {
         All times in Philippine Standard Time (PHT · UTC+8) · Forex market hours are approximate
       </p>
     </div>
+
+    
   )
 }
