@@ -1,49 +1,23 @@
+import { getKillZones, utcToFrac, utcToPHTStr } from '../utils/killZoneUtils'
+
 interface SessionTimelineProps {
-  dayFraction: number  // 0–1, current PHT position in the day
+  dayFraction: number
 }
 
 // ─────────────────────────────────────────────
-// SESSION POSITIONS ON THE 24HR PHT TIMELINE
-// All values are fractions of 24 hours (0 = 12AM, 1 = 12AM next day)
+// SESSION BARS (PHT fractions, fixed)
 // ─────────────────────────────────────────────
 
-const toFrac = (hour: number) => hour / 24
+const toFrac = (h: number) => h / 24
 
-const BARS = [
-  // Asian: 8AM–5PM PHT
-  {
-    id: 'asian',
-    label: 'Asian',
-    color: '#3b82f6',
-    segments: [{ start: toFrac(8), end: toFrac(17) }],
-  },
-  // London: 3PM–12AM PHT
-  {
-    id: 'london',
-    label: 'London',
-    color: '#a78bfa',
-    segments: [{ start: toFrac(15), end: toFrac(24) }],
-  },
-  // New York: 8PM–5AM PHT (crosses midnight — two segments)
-  {
-    id: 'ny',
-    label: 'New York',
-    color: '#34d399',
-    segments: [
-      { start: toFrac(20), end: toFrac(24) }, // 8PM to midnight
-      { start: toFrac(0),  end: toFrac(5)  }, // midnight to 5AM
-    ],
-  },
-  // London–NY Overlap: 8PM–12AM PHT
-  {
-    id: 'overlap',
-    label: 'LN–NY Overlap',
-    color: '#f59e0b',
-    segments: [{ start: toFrac(20), end: toFrac(24) }],
-  },
+const SESSION_BARS = [
+  { id: 'asian',   color: '#3b82f6', start: toFrac(8),  end: toFrac(17) },
+  { id: 'london',  color: '#a78bfa', start: toFrac(14), end: toFrac(24) },
+  { id: 'ny-a',    color: '#34d399', start: toFrac(19), end: toFrac(24) },
+  { id: 'ny-b',    color: '#34d399', start: toFrac(0),  end: toFrac(5)  },
+  { id: 'overlap', color: '#f59e0b', start: toFrac(19), end: toFrac(24), opacity: 0.45 },
 ]
 
-// Hour labels shown below the track
 const HOUR_LABELS = [
   { label: '12AM', frac: toFrac(0)  },
   { label: '4AM',  frac: toFrac(4)  },
@@ -59,6 +33,8 @@ const HOUR_LABELS = [
 // ─────────────────────────────────────────────
 
 export default function SessionTimeline({ dayFraction }: SessionTimelineProps) {
+  const killZones = getKillZones()
+
   return (
     <div
       className="rounded-2xl p-4 mt-3"
@@ -67,7 +43,6 @@ export default function SessionTimeline({ dayFraction }: SessionTimelineProps) {
         border: '1px solid rgba(255,255,255,0.07)',
       }}
     >
-      {/* Section title */}
       <p
         className="text-xs font-semibold tracking-widest uppercase mb-3"
         style={{ color: '#7d8590' }}
@@ -75,82 +50,134 @@ export default function SessionTimeline({ dayFraction }: SessionTimelineProps) {
         24-Hour Session Map · PHT (UTC+8)
       </p>
 
-      {/* ── Timeline track ── */}
-      <div className="relative">
-
-        {/* Background track */}
-        <div
-          className="relative h-8 rounded-lg overflow-hidden mb-1"
-          style={{ background: 'rgba(255,255,255,0.04)' }}
-        >
-          {/* Session bars */}
-          {BARS.map((bar) =>
-            bar.segments.map((seg, i) => (
-              <div
-                key={`${bar.id}-${i}`}
-                className="absolute top-0 h-full rounded"
-                style={{
-                  left: `${seg.start * 100}%`,
-                  width: `${(seg.end - seg.start) * 100}%`,
-                  background: bar.color,
-                  opacity: bar.id === 'overlap' ? 0.5 : 0.28,
-                }}
-              />
-            ))
-          )}
-
-          {/* Now marker — white vertical line */}
+      {/* ── Session bar track ── */}
+      <div
+        className="relative h-7 rounded-lg overflow-hidden"
+        style={{ background: 'rgba(255,255,255,0.04)' }}
+      >
+        {SESSION_BARS.map(({ id, color, start, end, opacity = 0.28 }) => (
           <div
-            className="absolute top-0 h-full w-0.5 rounded"
+            key={id}
+            className="absolute top-0 h-full rounded"
             style={{
-              left: `${dayFraction * 100}%`,
-              background: '#ffffff',
-              opacity: 0.9,
+              left:       `${start * 100}%`,
+              width:      `${(end - start) * 100}%`,
+              background: color,
+              opacity,
             }}
-          >
-            {/* Triangle pointer on top */}
-            <div
-              className="absolute -top-1 left-1/2 -translate-x-1/2"
-              style={{
-                width: 0,
-                height: 0,
-                borderLeft: '4px solid transparent',
-                borderRight: '4px solid transparent',
-                borderTop: '5px solid #ffffff',
-              }}
-            />
-          </div>
-        </div>
+          />
+        ))}
 
-        {/* ── Hour labels ── */}
-        <div className="relative h-4">
-          {HOUR_LABELS.map((tick) => (
-            <span
-              key={tick.label + tick.frac}
-              className="absolute text-xs transform -translate-x-1/2"
-              style={{
-                left: `${tick.frac * 100}%`,
-                color: '#7d8590',
-                fontSize: '10px',
-                fontFamily: 'monospace',
-              }}
-            >
-              {tick.label}
-            </span>
-          ))}
+        {/* Now marker */}
+        <div
+          className="absolute top-0 h-full w-0.5 rounded"
+          style={{ left: `${dayFraction * 100}%`, background: '#fff', opacity: 0.9 }}
+        >
+          <div style={{
+            position: 'absolute', top: -3, left: '50%',
+            transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft:  '4px solid transparent',
+            borderRight: '4px solid transparent',
+            borderTop:   '5px solid #fff',
+          }} />
         </div>
       </div>
 
-      {/* ── Legend ── */}
-      <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3">
-        {BARS.map((bar) => (
-          <div key={bar.id} className="flex items-center gap-1.5">
+      {/* ── Hour labels ── */}
+      <div className="relative h-4 mb-2">
+        {HOUR_LABELS.map(({ label, frac }) => (
+          <span
+            key={label + frac}
+            className="absolute -translate-x-1/2"
+            style={{
+              left:       `${frac * 100}%`,
+              color:      '#7d8590',
+              fontSize:   10,
+              fontFamily: 'monospace',
+            }}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {/* ── Kill zone track ── */}
+      <p
+        className="text-xs font-semibold tracking-widest uppercase mb-1.5"
+        style={{ color: '#7d8590', fontSize: 9, opacity: 0.7 }}
+      >
+        Kill Zones
+      </p>
+      <div
+        className="relative h-5 rounded-lg overflow-hidden mb-1"
+        style={{ background: 'rgba(255,255,255,0.04)' }}
+      >
+        {killZones.map((kz) => {
+          const startFrac = utcToFrac(kz.startUTC)
+          const endFrac   = utcToFrac(kz.endUTC)
+          return (
             <div
-              className="w-2 h-2 rounded-sm flex-shrink-0"
-              style={{ background: bar.color }}
-            />
-            <span style={{ color: '#7d8590', fontSize: '11px' }}>
-              {bar.label}
+              key={kz.id}
+              className="absolute top-0 h-full flex items-center justify-center"
+              style={{
+                left:        `${startFrac * 100}%`,
+                width:       `${(endFrac - startFrac) * 100}%`,
+                background:  `${kz.color}30`,
+                borderLeft:  `2px solid ${kz.color}`,
+                opacity:     0.9,
+              }}
+            >
+              <span style={{
+                fontSize:   8,
+                fontFamily: 'monospace',
+                fontWeight: 700,
+                color:      kz.color,
+              }}>
+                {kz.abbr}
+              </span>
+            </div>
+          )
+        })}
+
+        {/* Now marker on kill zone track */}
+        <div
+          className="absolute top-0 h-full w-0.5"
+          style={{ left: `${dayFraction * 100}%`, background: '#fff', opacity: 0.7 }}
+        />
+      </div>
+
+      {/* ── Legend ── */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
+        {/* Sessions */}
+        {[
+          { label: 'Asian (8AM–5PM)',        color: '#3b82f6' },
+          { label: 'London (2PM–11PM)',       color: '#a78bfa' },
+          { label: 'New York (7PM–4AM)',      color: '#34d399' },
+          { label: 'LN–NY Overlap',           color: '#f59e0b' },
+        ].map(({ label, color }) => (
+          <div key={label} className="flex items-center gap-1.5">
+            <div style={{ width: 8, height: 8, background: color, opacity: 0.7, borderRadius: 2, flexShrink: 0 }} />
+            <span style={{ color: '#7d8590', fontSize: 10 }}>{label}</span>
+          </div>
+        ))}
+
+        {/* Spacer */}
+        <div style={{ width: '100%' }} />
+
+        {/* Kill zones */}
+        {killZones.map((kz) => (
+          <div key={kz.id} className="flex items-center gap-1.5">
+            <div style={{
+              width:       8,
+              height:      8,
+              background:  `${kz.color}40`,
+              borderLeft:  `2px solid ${kz.color}`,
+              borderRadius: '0 2px 2px 0',
+              flexShrink:  0,
+            }} />
+            <span style={{ color: '#7d8590', fontSize: 10 }}>
+              {kz.name} ({utcToPHTStr(kz.startUTC)}–{utcToPHTStr(kz.endUTC)})
             </span>
           </div>
         ))}
@@ -158,3 +185,6 @@ export default function SessionTimeline({ dayFraction }: SessionTimelineProps) {
     </div>
   )
 }
+
+// Need to import utcToPHTStr too - add to the import line at the top:
+// import { getKillZones, utcToFrac, utcToPHTStr } from '../utils/killZoneUtils'

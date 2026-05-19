@@ -5,6 +5,7 @@ import OverlapBanner from '../components/OverlapBanner'
 import SessionTimeline from '../components/SessionTimeline'
 import StatsRow from '../components/StatsRow'
 import CryptoChart from '../components/CryptoChart'
+import SessionStats from '../components/SessionStats'
 
 export default function Dashboard() {
   const data = useForexSessions()
@@ -39,6 +40,7 @@ export default function Dashboard() {
         nextEventName={data.nextEvent.name}
         nextEventCountdown={data.nextEvent.countdown}
       />
+      <SessionStats /> 
 
       {/* Live ETH/USDT chart */}
       <CryptoChart />
