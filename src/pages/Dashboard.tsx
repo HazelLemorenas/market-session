@@ -6,9 +6,14 @@ import SessionTimeline from '../components/SessionTimeline'
 import StatsRow from '../components/StatsRow'
 import CryptoChart from '../components/CryptoChart'
 import SessionStats from '../components/SessionStats'
+import { useSweepDetection } from '../hooks/useSweepDetection'
+import SweepAlerts           from '../components/SweepAlerts'
+import { useSessionStats } from '../hooks/useSessionStats'
 
 export default function Dashboard() {
   const data = useForexSessions()
+  const { stats, loading } = useSessionStats()
+  const { sweeps, recentSweep, isConnected: sweepConnected } = useSweepDetection(stats)
 
   return (
     <div
@@ -40,7 +45,13 @@ export default function Dashboard() {
         nextEventName={data.nextEvent.name}
         nextEventCountdown={data.nextEvent.countdown}
       />
-      <SessionStats /> 
+      <SessionStats />
+
+      <SweepAlerts
+        sweeps={sweeps}
+        recentSweep={recentSweep}
+        isConnected={sweepConnected}
+      />
 
       {/* Live ETH/USDT chart */}
       <CryptoChart />
