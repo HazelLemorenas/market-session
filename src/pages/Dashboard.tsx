@@ -9,11 +9,18 @@ import SessionStats from '../components/SessionStats'
 import { useSweepDetection } from '../hooks/useSweepDetection'
 import SweepAlerts           from '../components/SweepAlerts'
 import { useSessionStats } from '../hooks/useSessionStats'
+import { useState }                                         from 'react'
+import DetectionSettings                                    from '../components/DetectionSettings'
+import { DEFAULT_OPTIONS, type SweepDetectionOptions }      from '../utils/sweepDetectionUtils'
 
 export default function Dashboard() {
   const data = useForexSessions()
+  const [detectionOptions, setDetectionOptions] =
+  useState<SweepDetectionOptions>(DEFAULT_OPTIONS)
+  // These two lines must both exist inside Dashboard()
   const { stats } = useSessionStats()
-  const { sweeps, recentSweep, isConnected: sweepConnected } = useSweepDetection(stats)
+  const { sweeps, recentSweep, isConnected: sweepConnected, rescan } = useSweepDetection(stats, detectionOptions)
+
 
   return (
     <div
@@ -53,8 +60,15 @@ export default function Dashboard() {
         isConnected={sweepConnected}
       />
 
+      <DetectionSettings
+        options={detectionOptions}
+        onChange={setDetectionOptions}
+        onApply={rescan}
+        sweepCount={sweeps.length}
+      />
+
       {/* Live ETH/USDT chart */}
-      <CryptoChart />
+      <CryptoChart sweeps={sweeps} />
 
       <p
         className="text-center mt-4 text-xs tracking-wide"

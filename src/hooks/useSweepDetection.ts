@@ -47,6 +47,7 @@ export interface UseSweepDetectionReturn {
   sweeps:      Sweep[]        // all detected sweeps newest first
   recentSweep: Sweep | null   // most recent — used to trigger UI alerts
   isConnected: boolean        // WebSocket status
+  rescan:      () => void
 }
 
 // ─────────────────────────────────────────────
@@ -60,6 +61,7 @@ export function useSweepDetection(
   const [sweeps,      setSweeps]      = useState<Sweep[]>([])
   const [recentSweep, setRecentSweep] = useState<Sweep | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [candlesLoaded, setCandlesLoaded] = useState(false)
 
   // ── Refs ──────────────────────────────────
   // Refs let WebSocket handlers access the latest
@@ -100,6 +102,7 @@ export function useSweepDetection(
         const candles = await fetchCandles()
         if (cancelled) return
         candlesRef.current = candles
+        setCandlesLoaded(true)
       } catch (err) {
         console.error('useSweepDetection: REST fetch failed', err)
       }
@@ -199,7 +202,31 @@ export function useSweepDetection(
     setSweeps([...sorted])
 
     if (sorted.length > 0) setRecentSweep(sorted[0])
-  }, [sessionStats])
+  }, [sessionStats, candlesLoaded])
 
-  return { sweeps, recentSweep, isConnected }
+  function rescan() {
+    if (sessionStatsRef.current.length === 0) return
+    if (candlesRef.current.length === 0) return
+
+    const levels = getReferenceLevels(sessionStatsRef.current)
+
+    if (levels.length === 0) return
+
+    const detected = runSweepDetection(
+      candlesRef.current,
+      levels,
+      getKillZones(),
+      optionsRef.current
+    )
+
+    const sorted = [...detected].reverse().slice(0, MAX_SWEEPS)
+
+    sweepsRef.current = sorted
+    setSweeps([...sorted])
+
+    if (sorted.length > 0)
+      setRecentSweep(sorted[0])
+  }
+
+  return { sweeps, recentSweep, isConnected, rescan}
 }
