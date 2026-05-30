@@ -85,6 +85,48 @@ function getSessionName(utcSecs: number): string {
 }
 
 // ─────────────────────────────────────────────
+// PERSISTENT DRAWING STORAGE
+// Lines are saved to localStorage so they survive
+// page reloads. Each line gets a unique id so it
+// can be individually removed later.
+// ─────────────────────────────────────────────
+
+const LS_KEY = 'forex-dashboard-drawn-lines'
+
+interface PersistedLine {
+  id:          string
+  price:       number
+  color:       string
+  sessionName: string
+}
+
+function loadSavedLines(): PersistedLine[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function persistLine(line: PersistedLine): void {
+  const existing = loadSavedLines()
+  localStorage.setItem(LS_KEY, JSON.stringify([...existing, line]))
+}
+
+function removePersistedLine(id: string): void {
+  const existing = loadSavedLines()
+  localStorage.setItem(
+    LS_KEY,
+    JSON.stringify(existing.filter((l) => l.id !== id))
+  )
+}
+
+function clearPersistedLines(): void {
+  localStorage.removeItem(LS_KEY)
+}
+
+// ─────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────
 
@@ -104,7 +146,7 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
   const chartRef          = useRef<IChartApi | null>(null)
   const seriesRef         = useRef<ISeriesApi<'Candlestick', any> | null>(null)
   const markersRef        = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
-  const drawnLinesRef     = useRef<any[]>([])
+  const drawnLinesRef = useRef<{ id: string; priceLine: any }[]>([])
   const prevCandlesLen    = useRef(0)
 
   const [lines,       setLines]       = useState<LinePos[]>([])
@@ -113,6 +155,8 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
   const [chartHeight, setChartHeight] = useState(CHART_HEIGHT)
   const [drawingMode, setDrawingMode] = useState(false)
   const [lastSession, setLastSession] = useState<string | null>(null)
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null)   // ← add
+  const [selectedLineY,  setSelectedLineY]  = useState<number | null>(null)   // ← add
 
   // ── 1. Initialize chart ───────────────────────────────────────────────────
 
@@ -163,8 +207,23 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
     })
 
     markersRef.current = createSeriesMarkers(series, [])
-    chartRef.current   = chart
-    seriesRef.current  = series
+
+    // Restore drawings saved from previous sessions
+    const savedLines = loadSavedLines()
+    savedLines.forEach(({ id, price, color, sessionName }) => {
+      const priceLine = series.createPriceLine({
+        price,
+        color,
+        lineWidth:        1,
+        lineStyle:        LineStyle.Solid,
+        axisLabelVisible: true,
+        title:            sessionName,
+      })
+      drawnLinesRef.current.push({ id, priceLine })
+    })
+
+    chartRef.current  = chart
+    seriesRef.current = series
 
     const onResize = () => {
       if (containerRef.current)
@@ -297,15 +356,30 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
     const series    = seriesRef.current
 
     function onClick(e: MouseEvent) {
-      const r     = container.getBoundingClientRect()
-      const price = series.coordinateToPrice(e.clientY - r.top)
-      const time  = chart.timeScale().coordinateToTime(e.clientX - r.left)
+      const r         = container.getBoundingClientRect()
+      const price     = series.coordinateToPrice(e.clientY - r.top)
+      const time      = chart.timeScale().coordinateToTime(e.clientX - r.left)
       if (price === null || time === null) return
-      const utcSecs = time as number
-      drawnLinesRef.current.push(
-        series.createPriceLine({ price, color: getSessionColor(utcSecs), lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: getSessionName(utcSecs) })
-      )
-      setLastSession(getSessionName(utcSecs))
+
+      const utcSecs     = time as number
+      const color       = getSessionColor(utcSecs)
+      const sessionName = getSessionName(utcSecs)
+
+      // Unique id for this line so it can be removed individually later
+      const id = `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+      const priceLine = series.createPriceLine({
+        price,
+        color,
+        lineWidth:        1,
+        lineStyle:        LineStyle.Solid,
+        axisLabelVisible: true,
+        title:            sessionName,
+      })
+
+      drawnLinesRef.current.push({ id, priceLine })
+      persistLine({ id, price, color, sessionName })  // ← save to localStorage
+      setLastSession(sessionName)
     }
 
     container.addEventListener('click', onClick)
@@ -314,16 +388,84 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
 
   function handleUndo() {
     if (!seriesRef.current || drawnLinesRef.current.length === 0) return
-    seriesRef.current.removePriceLine(drawnLinesRef.current.pop())
+    const last = drawnLinesRef.current.pop()
+    if (!last) return
+    seriesRef.current.removePriceLine(last.priceLine)
+    removePersistedLine(last.id)   // ← remove from localStorage
     setLastSession(null)
+  }
+
+  function handleDeleteSelected() {
+    if (!seriesRef.current || !selectedLineId) return
+
+    const target = drawnLinesRef.current.find((l) => l.id === selectedLineId)
+    if (!target) return
+
+    seriesRef.current.removePriceLine(target.priceLine)
+    drawnLinesRef.current = drawnLinesRef.current.filter(
+      (l) => l.id !== selectedLineId
+    )
+    removePersistedLine(selectedLineId)
+    setSelectedLineId(null)
+    setSelectedLineY(null)
   }
 
   function handleClearAll() {
     if (!seriesRef.current) return
-    drawnLinesRef.current.forEach((l) => seriesRef.current!.removePriceLine(l))
+    drawnLinesRef.current.forEach(({ priceLine }) => {
+      seriesRef.current!.removePriceLine(priceLine)
+    })
     drawnLinesRef.current = []
+    clearPersistedLines()   // ← clear localStorage
     setLastSession(null)
   }
+
+  // ── Line selection handler ────────────────────
+  // When NOT in drawing mode, clicking near an
+  // existing drawn line selects it for deletion.
+  useEffect(() => {
+    if (drawingMode) return
+    if (!containerRef.current || !seriesRef.current) return
+
+    const container = containerRef.current
+    const series    = seriesRef.current
+
+    function handleSelectClick(e: MouseEvent) {
+      // Ignore clicks on the delete button itself
+      if ((e.target as HTMLElement).closest('[data-delete-btn]')) return
+
+      const r     = container.getBoundingClientRect()
+      const clickY = e.clientY - r.top
+      const price  = series.coordinateToPrice(clickY)
+      if (price === null) return
+
+      // Check if click is within $1.50 of any drawn line
+      const THRESHOLD = 1.5
+      const match = drawnLinesRef.current.find(
+        ({ id: lineId, priceLine }) => {
+          // Get the line's price from our saved list
+          const saved = loadSavedLines().find((s) => s.id === lineId)
+          return saved && Math.abs(saved.price - price) < THRESHOLD
+        }
+      )
+
+      if (match) {
+        // Find the pixel Y position of this line for the delete button
+        const saved    = loadSavedLines().find((s) => s.id === match.id)
+        const linePrice = saved?.price ?? 0
+        const coord    = series.priceToCoordinate(linePrice)
+        setSelectedLineId(match.id)
+        setSelectedLineY(coord)
+      } else {
+        // Clicked elsewhere — deselect
+        setSelectedLineId(null)
+        setSelectedLineY(null)
+      }
+    }
+
+    container.addEventListener('click', handleSelectClick)
+    return () => container.removeEventListener('click', handleSelectClick)
+  }, [drawingMode, candles.length])
 
   // ─────────────────────────────────────────────
   // RENDER
@@ -374,7 +516,11 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
       {/* ── Drawing toolbar ── */}
       <div className="flex items-center gap-2 px-4 py-2 flex-wrap"
         style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <button onClick={() => setDrawingMode((p) => !p)}
+        <button onClick={() => {
+          setDrawingMode((p) => !p)
+          setSelectedLineId(null)    // ← clear selection when switching modes
+          setSelectedLineY(null)
+        }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
           style={{ background: drawingMode ? 'rgba(167,139,250,0.2)' : 'rgba(255,255,255,0.05)', color: drawingMode ? '#a78bfa' : '#7d8590', border: drawingMode ? '1px solid rgba(167,139,250,0.4)' : '1px solid rgba(255,255,255,0.07)', cursor: 'pointer' }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -423,6 +569,49 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
           </div>
         ))}
       </div>
+
+      {/* ── Selected line delete button ── */}
+      {selectedLineId !== null && selectedLineY !== null && (
+        <div
+          data-delete-btn
+          style={{
+            position:    'absolute',
+            top:         selectedLineY - 14,
+            left:        8,
+            zIndex:      20,
+            display:     'flex',
+            alignItems:  'center',
+            gap:         6,
+            background:  '#1c2332',
+            border:      '1px solid rgba(248,113,113,0.4)',
+            borderRadius: 6,
+            padding:     '3px 8px',
+            cursor:      'pointer',
+            userSelect:  'none',
+          }}
+          onClick={handleDeleteSelected}
+        >
+          <svg
+            width="10" height="10" viewBox="0 0 10 10"
+            fill="none" style={{ flexShrink: 0 }}
+          >
+            <path
+              d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"
+              stroke="#f87171" strokeWidth="1.5" strokeLinecap="round"
+            />
+          </svg>
+          <span
+            style={{
+              color:      '#f87171',
+              fontSize:   10,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+            }}
+          >
+            Delete line
+          </span>
+        </div>
+      )}
 
       {/* ── Legend ── */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>

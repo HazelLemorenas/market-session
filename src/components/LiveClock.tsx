@@ -6,11 +6,15 @@ interface LiveClockProps {
 
 export default function LiveClock({ clockTime, clockDate, utcTime }: LiveClockProps) {
   return (
-    <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
-
-      {/* ── Left: Brand ── */}
+    <div
+      className="flex items-center justify-between mt-4 px-2 flex-wrap gap-3"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        paddingTop: '12px',
+      }}
+    >
+      {/* Left: brand */}
       <div className="flex items-center gap-3">
-        {/* Live pulse dot */}
         <div className="relative flex items-center justify-center">
           <div
             className="w-2 h-2 rounded-full"
@@ -21,7 +25,6 @@ export default function LiveClock({ clockTime, clockDate, utcTime }: LiveClockPr
             style={{ background: '#34d399', opacity: 0.4 }}
           />
         </div>
-
         <div>
           <p
             className="text-xs font-bold tracking-widest uppercase"
@@ -35,7 +38,7 @@ export default function LiveClock({ clockTime, clockDate, utcTime }: LiveClockPr
         </div>
       </div>
 
-      {/* ── Right: Clock ── */}
+      {/* Right: clock — now shows seconds for candle tracking */}
       <div className="text-right">
         <p
           className="text-2xl font-bold tracking-wide leading-none"
@@ -53,7 +56,6 @@ export default function LiveClock({ clockTime, clockDate, utcTime }: LiveClockPr
           UTC {utcTime}
         </p>
       </div>
-
     </div>
   )
 }

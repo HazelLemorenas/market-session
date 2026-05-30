@@ -27,11 +27,6 @@ export default function Dashboard() {
       className="min-h-screen p-5"
       style={{ background: '#0d1117', color: '#e6edf3' }}
     >
-      <LiveClock
-        clockTime={data.clockTime}
-        clockDate={data.clockDate}
-        utcTime={data.utcTime}
-      />
 
       <OverlapBanner isVisible={data.overlapActive} />
 
@@ -69,6 +64,12 @@ export default function Dashboard() {
 
       {/* Live ETH/USDT chart */}
       <CryptoChart sweeps={sweeps} />
+      
+      <LiveClock
+        clockTime={data.clockTime}
+        clockDate={data.clockDate}
+        utcTime={data.utcTime}
+      />
 
       <p
         className="text-center mt-4 text-xs tracking-wide"
