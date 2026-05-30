@@ -208,6 +208,8 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
 
     markersRef.current = createSeriesMarkers(series, [])
 
+    drawnLinesRef.current = []
+
     // Restore drawings saved from previous sessions
     const savedLines = loadSavedLines()
     savedLines.forEach(({ id, price, color, sessionName }) => {
@@ -234,6 +236,7 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
     return () => {
       window.removeEventListener('resize', onResize)
       markersRef.current = null
+      drawnLinesRef.current = []
       chart.remove()
       chartRef.current  = null
       seriesRef.current = null
@@ -442,7 +445,7 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
       // Check if click is within $1.50 of any drawn line
       const THRESHOLD = 1.5
       const match = drawnLinesRef.current.find(
-        ({ id: lineId, priceLine }) => {
+        ({ id: lineId}) => {
           // Get the line's price from our saved list
           const saved = loadSavedLines().find((s) => s.id === lineId)
           return saved && Math.abs(saved.price - price) < THRESHOLD
@@ -568,9 +571,8 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
             <span style={{ position: 'absolute', top: 8, left: 4, fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color, opacity: 0.9 }}>{label}</span>
           </div>
         ))}
-      </div>
 
-      {/* ── Selected line delete button ── */}
+        {/* ── Selected line delete button ── */}
       {selectedLineId !== null && selectedLineY !== null && (
         <div
           data-delete-btn
@@ -612,6 +614,7 @@ export default function CryptoChart({ sweeps = [] }: CryptoChartProps) {
           </span>
         </div>
       )}
+      </div>
 
       {/* ── Legend ── */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
